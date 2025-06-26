@@ -28,6 +28,14 @@ at24c256_driver/
 │   └── at24c256.c          # 驱动程序实现
 ├── examples/
 │   └── main.c              # 示例程序
+├── test/                   # 测试程序
+│   ├── src/               # 测试程序源代码
+│   │   ├── camera_data_write.c # 相机参数写入程序
+│   │   └── camera_data_read.c  # 相机参数读取程序
+│   ├── build/             # 测试程序构建产物
+│   ├── camera_parameters/ # 测试数据文件
+│   ├── Makefile           # 测试程序构建配置
+│   └── README.md          # 测试程序说明
 ├── CMakeLists.txt          # CMake构建配置
 └── README.md              # 本文档
 ```
@@ -55,7 +63,21 @@ ninja
 ./bin/at24c256_example
 ```
 
-### 3. 安装库文件 (可选)
+### 3. 运行测试程序
+
+```bash
+# 构建测试程序
+cd test
+make
+
+# 运行写入程序（将相机参数写入EEPROM）
+LD_LIBRARY_PATH=../build/lib ./build/bin/camera_data_write
+
+# 运行读取程序（从EEPROM读取相机参数）
+LD_LIBRARY_PATH=../build/lib ./build/bin/camera_data_read
+```
+
+### 4. 安装库文件 (可选)
 
 ```bash
 # 安装到系统目录
@@ -246,6 +268,80 @@ AT24C256 驱动程序示例程序
 失败测试: 0
 ✓ 所有测试通过！
 ```
+
+## 测试程序
+
+项目包含两个独立的相机参数存储测试程序，位于 `test/` 目录。
+
+### camera_data_write - 写入程序
+
+将 `camera_parameters` 目录中的所有文件写入EEPROM。
+
+#### 功能特性
+
+- **自动文件处理**: 自动遍历 `camera_parameters` 目录中的所有文件
+- **EEPROM存储**: 将文件写入EEPROM并从地址 `0x0000` 开始存储
+- **批量处理**: 支持批量处理多个文件，自动管理EEPROM地址空间
+
+#### 输出示例
+
+```
+相机参数EEPROM写入程序
+======================
+EEPROM设备初始化成功
+
+=== 开始写入相机参数文件到EEPROM ===
+
+处理文件: camera1_intrinsics.dat
+写入文件到EEPROM: camera_parameters/camera1_intrinsics.dat (大小: 226 bytes, 地址: 0x0000)
+✓ 文件写入成功: camera1_intrinsics.dat
+
+=== 写入完成 ===
+总共写入文件数: 5
+EEPROM使用地址范围: 0x0000 - 0x1B03
+
+✓ 写入成功！所有文件已成功写入EEPROM
+```
+
+### camera_data_read - 读取程序
+
+从EEPROM读取相机参数数据并保存到 `out` 目录。
+
+#### 功能特性
+
+- **数据读取**: 从EEPROM读取数据并保存到输出目录
+- **数据验证**: 验证原始文件和读取文件的完整性
+- **自动目录创建**: 自动创建输出目录
+
+#### 输出示例
+
+```
+相机参数EEPROM读取程序
+======================
+创建目录: out
+EEPROM设备初始化成功
+
+=== 开始从EEPROM读取相机参数文件 ===
+
+处理文件: camera1_intrinsics.dat
+从EEPROM读取文件: out/camera1_intrinsics.dat (大小: 226 bytes, 地址: 0x0000)
+成功保存文件: out/camera1_intrinsics.dat
+✓ 文件验证成功: camera1_intrinsics.dat
+
+=== 读取完成 ===
+总共读取文件数: 5
+EEPROM使用地址范围: 0x0000 - 0x1B03
+
+✓ 读取成功！所有文件已从EEPROM读取并保存
+```
+
+### 测试数据
+
+测试程序使用以下相机参数文件：
+- `camera0_intrinsics.dat` - 相机0内参文件 (222 bytes)
+- `camera0_rot_trans.dat` - 相机0旋转平移文件 (60 bytes)
+- `camera1_intrinsics.dat` - 相机1内参文件 (226 bytes)
+- `camera1_rot_trans.dat` - 相机1旋转平移文件 (260 bytes)
 
 ## 故障排除
 
