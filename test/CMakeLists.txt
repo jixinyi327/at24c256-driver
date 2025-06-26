@@ -22,11 +22,11 @@ if(NOT AT24C256_LIB)
     message(WARNING "AT24C256 library not found. Please build the main project first.")
 endif()
 
-# 写入程序
+# 写入程序（修复版本，包含文件索引）
 add_executable(camera_data_write src/camera_data_write.c)
 target_link_libraries(camera_data_write ${AT24C256_LIB})
 
-# 读取程序
+# 读取程序（修复版本，独立读取，不依赖本地目录）
 add_executable(camera_data_read src/camera_data_read.c)
 target_link_libraries(camera_data_read ${AT24C256_LIB})
 
@@ -47,5 +47,5 @@ message(STATUS "  Install Prefix: ${CMAKE_INSTALL_PREFIX}")
 message(STATUS "  C Compiler: ${CMAKE_C_COMPILER}")
 message(STATUS "  C Flags: ${CMAKE_C_FLAGS}")
 message(STATUS "  Targets:")
-message(STATUS "    - camera_data_write (write camera parameters to EEPROM)")
-message(STATUS "    - camera_data_read (read camera parameters from EEPROM)")
+message(STATUS "    - camera_data_write (write camera parameters to EEPROM with file index)")
+message(STATUS "    - camera_data_read (read camera parameters from EEPROM without local directory dependency)")

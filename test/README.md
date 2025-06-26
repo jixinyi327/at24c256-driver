@@ -148,15 +148,15 @@ EEPROM使用地址范围: 0x0000 - 0x02FF
 3. **写入数据到EEPROM**:
    ```bash
    # 直接覆盖写入 (推荐用于常规更新)
-   LD_LIBRARY_PATH=../build/lib ./camera_data_write
+   LD_LIBRARY_PATH=../build/lib build/camera_data_write
    
    # 擦除后写入 (推荐用于首次使用或需要完全清理时)
-   LD_LIBRARY_PATH=../build/lib ./camera_data_write --erase
+   LD_LIBRARY_PATH=../build/lib build/camera_data_write --erase
    ```
 
 4. **从EEPROM读取数据**:
    ```bash
-   LD_LIBRARY_PATH=../build/lib ./camera_data_read
+   LD_LIBRARY_PATH=../build/lib build/camera_data_read
    ```
 
 ## 测试验证

@@ -1,8 +1,9 @@
 /**
  * @file camera_data_read.c
  * @brief 相机参数数据EEPROM读取程序
- * 
+ *
  * 从EEPROM读取相机参数数据并保存到输出目录
+ * 支持文件索引机制，不依赖本地目录
  */
 
 #include <stdio.h>
@@ -17,6 +18,29 @@
 
 #define EEPROM_START_ADDRESS 0x0000
 #define MAX_FILE_SIZE (32 * 1024)  // 最大文件大小32KB
+#define MAX_FILENAME_LENGTH 64
+#define MAX_FILES 16
+
+/**
+ * @brief 文件索引结构
+ */
+typedef struct {
+    char filename[MAX_FILENAME_LENGTH];
+    uint16_t address;
+    uint16_t size;
+    uint8_t checksum;
+} file_index_t;
+
+/**
+ * @brief 文件索引头
+ */
+typedef struct {
+    uint8_t magic[4];  // "CAM\0"
+    uint8_t version;
+    uint8_t file_count;
+    uint16_t total_size;
+    uint8_t reserved[8];
+} index_header_t;
 
 /**
  * @brief 创建目录（如果不存在）
@@ -34,164 +58,118 @@ static int create_directory(const char* path) {
 }
 
 /**
+ * @brief 计算数据的校验和
+ */
+static uint8_t calculate_checksum(const uint8_t* data, size_t size) {
+    uint8_t checksum = 0;
+    for (size_t i = 0; i < size; i++) {
+        checksum ^= data[i];
+    }
+    return checksum;
+}
+
+/**
+ * @brief 从EEPROM读取文件索引
+ */
+static int read_file_index(at24c256_handle_t handle, file_index_t* files, int* file_count) {
+    index_header_t header;
+    
+    // 读取索引头
+    at24c256_err_t ret = at24c256_read(handle, EEPROM_START_ADDRESS, (uint8_t*)&header, sizeof(header));
+    if (ret != AT24C256_OK) {
+        printf("读取索引头失败: %s\n", at24c256_strerror(ret));
+        return -1;
+    }
+    
+    // 验证魔术字
+    if (memcmp(header.magic, "CAM\0", 4) != 0) {
+        printf("无效的索引格式 (魔术字不匹配)\n");
+        return -1;
+    }
+    
+    printf("索引版本: %d, 文件数量: %d\n", header.version, header.file_count);
+    
+    if (header.file_count > MAX_FILES) {
+        printf("文件数量超出限制: %d > %d\n", header.file_count, MAX_FILES);
+        return -1;
+    }
+    
+    // 读取文件索引
+    uint16_t index_address = EEPROM_START_ADDRESS + sizeof(header);
+    for (int i = 0; i < header.file_count; i++) {
+        ret = at24c256_read(handle, index_address, (uint8_t*)&files[i], sizeof(file_index_t));
+        if (ret != AT24C256_OK) {
+            printf("读取文件索引 %d 失败: %s\n", i, at24c256_strerror(ret));
+            return -1;
+        }
+        index_address += sizeof(file_index_t);
+    }
+    
+    *file_count = header.file_count;
+    return 0;
+}
+
+/**
  * @brief 从EEPROM读取文件并保存
  */
-static int read_file_from_eeprom(at24c256_handle_t handle, const char* output_filename,
-                                uint16_t address, long file_size) {
+static int read_file_from_eeprom(at24c256_handle_t handle, const file_index_t* file_info,
+                                const char* output_dir) {
+    char output_path[512];
+    snprintf(output_path, sizeof(output_path), "%s/%s", output_dir, file_info->filename);
+    
     // 从EEPROM读取数据
-    uint8_t* buffer = (uint8_t*)malloc(file_size);
+    uint8_t* buffer = (uint8_t*)malloc(file_info->size);
     if (!buffer) {
         printf("内存分配失败\n");
         return -1;
     }
     
-    printf("从EEPROM读取文件: %s (大小: %ld bytes, 地址: 0x%04X)\n", 
-           output_filename, file_size, address);
+    printf("从EEPROM读取文件: %s (大小: %d bytes, 地址: 0x%04X)\n", 
+           file_info->filename, file_info->size, file_info->address);
     
-    at24c256_err_t ret = at24c256_read(handle, address, buffer, file_size);
+    at24c256_err_t ret = at24c256_read(handle, file_info->address, buffer, file_info->size);
     if (ret != AT24C256_OK) {
         printf("EEPROM读取失败: %s\n", at24c256_strerror(ret));
         free(buffer);
         return -1;
     }
     
-    // 写入输出文件
-    FILE* file = fopen(output_filename, "wb");
-    if (!file) {
-        printf("无法创建输出文件: %s\n", output_filename);
+    // 验证校验和
+    uint8_t checksum = calculate_checksum(buffer, file_info->size);
+    if (checksum != file_info->checksum) {
+        printf("校验和验证失败: 期望 0x%02X, 实际 0x%02X\n", file_info->checksum, checksum);
         free(buffer);
         return -1;
     }
     
-    size_t bytes_written = fwrite(buffer, 1, file_size, file);
+    // 写入输出文件
+    FILE* file = fopen(output_path, "wb");
+    if (!file) {
+        printf("无法创建输出文件: %s\n", output_path);
+        free(buffer);
+        return -1;
+    }
+    
+    size_t bytes_written = fwrite(buffer, 1, file_info->size, file);
     fclose(file);
     free(buffer);
     
-    if (bytes_written != (size_t)file_size) {
-        printf("写入输出文件失败: %s\n", output_filename);
+    if (bytes_written != (size_t)file_info->size) {
+        printf("写入输出文件失败: %s\n", output_path);
         return -1;
     }
     
-    printf("成功保存文件: %s\n", output_filename);
+    printf("✓ 成功保存文件: %s (校验和: 0x%02X)\n", output_path, checksum);
     return 0;
-}
-
-/**
- * @brief 验证两个文件内容是否相同
- */
-static int verify_files(const char* file1, const char* file2) {
-    FILE* f1 = fopen(file1, "rb");
-    FILE* f2 = fopen(file2, "rb");
-    
-    if (!f1 || !f2) {
-        if (f1) fclose(f1);
-        if (f2) fclose(f2);
-        return -1;
-    }
-    
-    int result = 0;
-    uint8_t buf1[1024], buf2[1024];
-    size_t bytes1, bytes2;
-    
-    do {
-        bytes1 = fread(buf1, 1, sizeof(buf1), f1);
-        bytes2 = fread(buf2, 1, sizeof(buf2), f2);
-        
-        if (bytes1 != bytes2 || memcmp(buf1, buf2, bytes1) != 0) {
-            result = -1;
-            break;
-        }
-    } while (bytes1 > 0);
-    
-    fclose(f1);
-    fclose(f2);
-    return result;
-}
-
-/**
- * @brief 处理camera_parameters目录中的所有文件
- */
-static int process_camera_parameters(at24c256_handle_t handle, const char* input_dir, 
-                                   const char* output_dir) {
-    DIR* dir = opendir(input_dir);
-    if (!dir) {
-        printf("无法打开目录: %s\n", input_dir);
-        return -1;
-    }
-    
-    struct dirent* entry;
-    uint16_t current_address = EEPROM_START_ADDRESS;
-    int file_count = 0;
-    
-    printf("\n=== 开始从EEPROM读取相机参数文件 ===\n");
-    
-    // 遍历目录中的所有文件
-    while ((entry = readdir(dir)) != NULL) {
-        // 跳过 . 和 .. 目录
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-        
-        // 只处理 .dat 文件
-        char* extension = strrchr(entry->d_name, '.');
-        if (extension == NULL || strcmp(extension, ".dat") != 0) {
-            continue;
-        }
-        
-        char input_path[512];
-        char output_path[512];
-        
-        snprintf(input_path, sizeof(input_path), "%s/%s", input_dir, entry->d_name);
-        snprintf(output_path, sizeof(output_path), "%s/%s", output_dir, entry->d_name);
-        
-        // 检查是否为常规文件
-        struct stat path_stat;
-        if (stat(input_path, &path_stat) == 0 && S_ISREG(path_stat.st_mode)) {
-            printf("\n处理文件: %s\n", entry->d_name);
-            
-            // 获取文件大小
-            FILE* file = fopen(input_path, "rb");
-            if (!file) {
-                printf("无法打开文件: %s\n", input_path);
-                continue;
-            }
-            
-            fseek(file, 0, SEEK_END);
-            long file_size = ftell(file);
-            fclose(file);
-            
-            // 从EEPROM读取并保存到输出目录
-            if (read_file_from_eeprom(handle, output_path, current_address, file_size) == 0) {
-                file_count++;
-                current_address += file_size;
-                
-                // 验证文件内容
-                if (verify_files(input_path, output_path) == 0) {
-                    printf("✓ 文件验证成功: %s\n", entry->d_name);
-                } else {
-                    printf("✗ 文件验证失败: %s\n", entry->d_name);
-                }
-            }
-        }
-    }
-    
-    closedir(dir);
-    printf("\n=== 读取完成 ===\n");
-    printf("总共读取文件数: %d\n", file_count);
-    printf("EEPROM使用地址范围: 0x%04X - 0x%04X\n", 
-           EEPROM_START_ADDRESS, current_address - 1);
-    
-    return file_count;
 }
 
 /**
  * @brief 主函数
  */
 int main(void) {
-    printf("相机参数EEPROM读取程序\n");
-    printf("======================\n");
+    printf("相机参数EEPROM读取程序（修复版）\n");
+    printf("==============================\n");
     
-    const char* input_dir = "camera_parameters";
     const char* output_dir = "out";
     
     // 创建输出目录
@@ -211,14 +189,34 @@ int main(void) {
     
     printf("EEPROM设备初始化成功\n");
     
-    // 处理相机参数文件
-    int file_count = process_camera_parameters(handle, input_dir, output_dir);
+    // 读取文件索引
+    file_index_t files[MAX_FILES];
+    int file_count = 0;
+    
+    printf("\n=== 读取文件索引 ===\n");
+    if (read_file_index(handle, files, &file_count) != 0) {
+        printf("读取文件索引失败，可能EEPROM中没有有效数据\n");
+        at24c256_deinit(handle);
+        return EXIT_FAILURE;
+    }
+    
+    printf("成功读取 %d 个文件的索引\n", file_count);
+    
+    // 读取文件数据
+    printf("\n=== 开始从EEPROM读取相机参数文件 ===\n");
+    int success_count = 0;
+    
+    for (int i = 0; i < file_count; i++) {
+        if (read_file_from_eeprom(handle, &files[i], output_dir) == 0) {
+            success_count++;
+        }
+    }
     
     // 清理资源
     at24c256_deinit(handle);
     
-    if (file_count > 0) {
-        printf("\n✓ 读取成功！所有文件已从EEPROM读取并保存\n");
+    if (success_count > 0) {
+        printf("\n✓ 读取成功！%d/%d 个文件已从EEPROM读取并保存\n", success_count, file_count);
         return EXIT_SUCCESS;
     } else {
         printf("\n✗ 读取失败！没有成功读取任何文件\n");
