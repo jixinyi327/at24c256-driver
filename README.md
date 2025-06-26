@@ -34,7 +34,7 @@ at24c256_driver/
 │   │   └── camera_data_read.c  # 相机参数读取程序
 │   ├── build/             # 测试程序构建产物
 │   ├── camera_parameters/ # 测试数据文件
-│   ├── Makefile           # 测试程序构建配置
+│   ├── CMakeLists.txt     # 测试程序CMake构建配置
 │   └── README.md          # 测试程序说明
 ├── CMakeLists.txt          # CMake构建配置
 └── README.md              # 本文档
@@ -68,13 +68,17 @@ ninja
 ```bash
 # 构建测试程序
 cd test
-make
+mkdir -p build && cd build
+cmake -G Ninja .. && ninja
 
 # 运行写入程序（将相机参数写入EEPROM）
-LD_LIBRARY_PATH=../build/lib ./build/bin/camera_data_write
+LD_LIBRARY_PATH=../../build/lib ./camera_data_write
+
+# 运行写入程序（擦除后写入，可选）
+LD_LIBRARY_PATH=../../build/lib ./camera_data_write --erase
 
 # 运行读取程序（从EEPROM读取相机参数）
-LD_LIBRARY_PATH=../build/lib ./build/bin/camera_data_read
+LD_LIBRARY_PATH=../../build/lib ./camera_data_read
 ```
 
 ### 4. 安装库文件 (可选)
@@ -275,13 +279,15 @@ AT24C256 驱动程序示例程序
 
 ### camera_data_write - 写入程序
 
-将 `camera_parameters` 目录中的所有文件写入EEPROM。
+将 `camera_parameters` 目录中的所有 `.dat` 文件写入EEPROM。
 
 #### 功能特性
 
-- **自动文件处理**: 自动遍历 `camera_parameters` 目录中的所有文件
+- **自动文件处理**: 自动遍历 `camera_parameters` 目录中的所有 `.dat` 文件
 - **EEPROM存储**: 将文件写入EEPROM并从地址 `0x0000` 开始存储
 - **批量处理**: 支持批量处理多个文件，自动管理EEPROM地址空间
+- **可选擦除**: 支持 `--erase` 参数在写入前擦除整个EEPROM
+- **文件过滤**: 只处理 `.dat` 文件，忽略其他文件类型
 
 #### 输出示例
 
@@ -312,6 +318,7 @@ EEPROM使用地址范围: 0x0000 - 0x1B03
 - **数据读取**: 从EEPROM读取数据并保存到输出目录
 - **数据验证**: 验证原始文件和读取文件的完整性
 - **自动目录创建**: 自动创建输出目录
+- **文件过滤**: 只处理 `.dat` 文件，忽略其他文件类型
 
 #### 输出示例
 
@@ -337,11 +344,30 @@ EEPROM使用地址范围: 0x0000 - 0x1B03
 
 ### 测试数据
 
-测试程序使用以下相机参数文件：
+测试程序使用以下相机参数文件（只处理 `.dat` 文件）：
 - `camera0_intrinsics.dat` - 相机0内参文件 (222 bytes)
 - `camera0_rot_trans.dat` - 相机0旋转平移文件 (60 bytes)
 - `camera1_intrinsics.dat` - 相机1内参文件 (226 bytes)
 - `camera1_rot_trans.dat` - 相机1旋转平移文件 (260 bytes)
+
+### 关于EEPROM擦除
+
+#### 是否需要擦除？
+
+**通常不需要全片擦除的情况：**
+- **首次使用**: 新EEPROM所有位都是1(0xFF)，可以直接写入
+- **覆盖写入**: 如果新数据完全覆盖旧数据区域，可以直接写入
+- **小范围更新**: 只修改部分数据时，不需要全片擦除
+
+**建议使用擦除的情况：**
+- **安全敏感应用**: 防止残留数据泄露
+- **数据完整性要求高**: 确保没有旧数据干扰
+- **从0改回1**: 需要将已写入的0位改回1时
+
+#### 擦除性能考虑
+- 全片擦除32KB EEPROM需要约2-3分钟
+- 直接覆盖写入通常只需要几秒钟
+- 在大多数应用场景中，直接覆盖写入是更高效的选择
 
 ## 故障排除
 
