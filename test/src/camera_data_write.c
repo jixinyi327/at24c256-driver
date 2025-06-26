@@ -337,9 +337,9 @@ int main(int argc, char* argv[]) {
         
         printf("\n=== 写入完成 ===\n");
         printf("总共写入文件数: %d\n", file_count);
-        printf("EEPROM使用地址范围: 0x%04X - 0x%04X\n", 
-               EEPROM_START_ADDRESS, EEPROM_START_ADDRESS + sizeof(index_header_t) + 
-               (file_count * sizeof(file_index_t)) + files[file_count - 1].size - 1);
+        printf("EEPROM使用地址范围: 0x%04X - 0x%04X\n",
+               EEPROM_START_ADDRESS, (uint16_t)(EEPROM_START_ADDRESS + sizeof(index_header_t) +
+               (file_count * sizeof(file_index_t)) + files[file_count - 1].size - 1));
     }
     
     // 清理资源
