@@ -112,3 +112,6 @@ Thumbs.db
 *.rpm
 *.tar.gz
 *.zip
+
+# GitHub setup guide (temporary file)
+GITHUB_SETUP.md
